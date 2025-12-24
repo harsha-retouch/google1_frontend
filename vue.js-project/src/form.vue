@@ -106,7 +106,7 @@
   </section>
 </template>
 
-<script setup>
+<!-- <script setup>
 import { reactive, ref } from 'vue'
 
 const facePhotoInput = ref(null)
@@ -232,7 +232,172 @@ function onSubmit() {
   console.log('Submitting visitor data', payload)
   alert('Form submitted (see console).')
 }
+</script> -->
+
+
+// ...existing code...
+<script setup>
+import { reactive, ref } from 'vue'
+
+const facePhotoInput = ref(null)
+const cameraStream = ref(null)
+
+const API_BASE = import.meta.env.VITE_API_BASE || '' // will use VITE_API_BASE from .env
+
+const form = reactive({
+  fullName: '',
+  contactNumber: '',
+  gender: '',
+  emergencyNumber: '',
+  address: '',
+  pin: '',
+  vehicle: '',
+  faceFile: null,
+  aadharFile: null,
+  docType: '',
+  aadhaarNumber: '',
+  confirm: false,
+})
+
+const errors = reactive({})
+
+function triggerFileInput(field) {
+  if (field === 'face') {
+    facePhotoInput.value?.click()
+  }
+}
+
+function onFileChange(e, field) {
+  const file = e.target.files && e.target.files[0]
+  if (field === 'face') {
+    form.faceFile = file
+    console.log('Face photo selected:', file)
+  }
+  if (field === 'aadhar') form.aadharFile = file
+}
+
+function triggerCamera(field) {
+  if (field === 'face') {
+    // Request camera access
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+      .then(stream => {
+        cameraStream.value = stream
+        openCameraModal(field)
+      })
+      .catch(err => {
+        console.error('Camera access denied:', err)
+        alert('Camera access denied. Please use "Choose File" to upload an image.')
+      })
+  }
+}
+
+function openCameraModal(field) {
+  const modal = document.createElement('div')
+  modal.className = 'camera-modal'
+  modal.innerHTML = `
+    <div class="camera-modal-content">
+      <h3>Take Photo</h3>
+      <video id="camera-video" autoplay playsinline></video>
+      <canvas id="camera-canvas" style="display:none;"></canvas>
+      <div class="camera-modal-buttons">
+        <button type="button" class="btn-secondary" id="cancel-btn">Cancel</button>
+        <button type="button" class="btn-primary" id="capture-btn">📸 Capture</button>
+      </div>
+    </div>
+  `
+  document.body.appendChild(modal)
+  
+  const video = modal.querySelector('#camera-video')
+  const canvas = modal.querySelector('#camera-canvas')
+  const captureBtn = modal.querySelector('#capture-btn')
+  const cancelBtn = modal.querySelector('#cancel-btn')
+  
+  if (cameraStream.value) {
+    video.srcObject = cameraStream.value
+  }
+  
+  captureBtn.addEventListener('click', () => {
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(video, 0, 0)
+    canvas.toBlob(blob => {
+      const file = new File([blob], `face_photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
+      form.faceFile = file
+      stopCamera()
+      modal.remove()
+      console.log('Photo captured:', file)
+    }, 'image/jpeg')
+  })
+  
+  cancelBtn.addEventListener('click', () => {
+    stopCamera()
+    modal.remove()
+  })
+}
+
+function stopCamera() {
+  if (cameraStream.value) {
+    cameraStream.value.getTracks().forEach(track => track.stop())
+    cameraStream.value = null
+  }
+}
+
+function validate() {
+  errors.fullName = form.fullName ? '' : 'Full name is required.'
+  errors.contactNumber = form.contactNumber ? '' : 'Contact number is required.'
+  errors.gender = form.gender ? '' : 'Gender is required.'
+  errors.address = form.address ? '' : 'Address is required.'
+  errors.pin = form.pin ? '' : 'Pin Code is required.'
+  errors.face = form.faceFile ? '' : 'Face photo is required.'
+  errors.aadhar = form.aadharFile ? '' : 'Aadhaar photo is required.'
+  errors.docType = form.docType ? '' : 'Document type is required.'
+  errors.aadhaarNumber = form.aadhaarNumber ? '' : 'Aadhaar number is required.'
+
+  return !Object.values(errors).some(v => v)
+}
+
+async function onSubmit() {
+  if (!validate()) return
+
+  try {
+    const fd = new FormData()
+    fd.append('fullName', form.fullName)
+    fd.append('contactNumber', form.contactNumber)
+    fd.append('gender', form.gender)
+    fd.append('emergencyNumber', form.emergencyNumber || '')
+    fd.append('address', form.address)
+    fd.append('pin', form.pin)
+    fd.append('vehicle', form.vehicle || '')
+    if (form.faceFile) fd.append('faceFile', form.faceFile)
+    if (form.aadharFile) fd.append('aadharFile', form.aadharFile)
+    fd.append('docType', form.docType)
+    fd.append('aadhaarNumber', form.aadhaarNumber)
+    fd.append('confirm', form.confirm ? 'true' : 'false')
+
+    const url = `${API_BASE}/api/v1/visitor/register`
+    const res = await fetch(url, {
+      method: 'POST',
+      body: fd,
+    })
+
+    if (!res.ok) {
+      const errText = await res.text()
+      console.error('Submission failed:', errText)
+      alert('Submission failed. See console for details.')
+      return
+    }
+
+    const data = await res.json()
+    console.log('Submission success:', data)
+    alert('Form submitted successfully.')
+  } catch (err) {
+    console.error('Submit error:', err)
+    alert('Submit error. See console.')
+  }
+}
 </script>
+// ...existing code...
 
 <style scoped>
 * {
