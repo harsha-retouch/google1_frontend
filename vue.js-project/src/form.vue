@@ -357,43 +357,90 @@ function validate() {
   return !Object.values(errors).some(v => v)
 }
 
+// async function onSubmit() {
+//   if (!validate()) return
+
+//   try {
+//     const fd = new FormData()
+//     fd.append('fullName', form.fullName)
+//     fd.append('contactNumber', form.contactNumber)
+//     fd.append('gender', form.gender)
+//     fd.append('emergencyNumber', form.emergencyNumber || '')
+//     fd.append('address', form.address)
+//     fd.append('pin', form.pin)
+//     fd.append('vehicle', form.vehicle || '')
+//     if (form.faceFile) fd.append('faceFile', form.faceFile)
+//     if (form.aadharFile) fd.append('aadharFile', form.aadharFile)
+//     fd.append('docType', form.docType)
+//     fd.append('aadhaarNumber', form.aadhaarNumber)
+//     fd.append('confirm', form.confirm ? 'true' : 'false')
+
+//     const url = `${API_BASE}/api/v1/visitor/register`
+//     const res = await fetch(url, {
+//       method: 'POST',
+//       body: fd,
+//     })
+
+//     if (!res.ok) {
+//       const errText = await res.text()
+//       console.error('Submission failed:', errText)
+//       alert('Submission failed. See console for details.')
+//       return
+//     }
+
+//     const data = await res.json()
+//     console.log('Submission success:', data)
+//     alert('Form submitted successfully.')
+//   } catch (err) {
+//     console.error('Submit error:', err)
+//     alert('Submit error. See console.')
+//   }
+
 async function onSubmit() {
   if (!validate()) return
 
   try {
     const fd = new FormData()
-    fd.append('fullName', form.fullName)
-    fd.append('contactNumber', form.contactNumber)
-    fd.append('gender', form.gender)
-    fd.append('emergencyNumber', form.emergencyNumber || '')
-    fd.append('address', form.address)
-    fd.append('pin', form.pin)
-    fd.append('vehicle', form.vehicle || '')
-    if (form.faceFile) fd.append('faceFile', form.faceFile)
-    if (form.aadharFile) fd.append('aadharFile', form.aadharFile)
-    fd.append('docType', form.docType)
-    fd.append('aadhaarNumber', form.aadhaarNumber)
-    fd.append('confirm', form.confirm ? 'true' : 'false')
+
+    // ✅ MATCH FASTAPI FIELD NAMES EXACTLY
+    fd.append('full_name', form.fullName)
+    fd.append('contact_number', form.contactNumber)
+    fd.append('gender', form.gender.toLowerCase()) // optional: match backend values
+    fd.append('emergency_contact', form.emergencyNumber || '')
+    fd.append('home_address', form.address)
+    fd.append('pin_code', form.pin)
+    fd.append('vehicle_number', form.vehicle || '')
+    fd.append('document_type', form.docType)
+    fd.append('aadhaar_number', form.aadhaarNumber)
+
+    // ✅ FILE FIELD NAMES MUST MATCH
+    if (form.faceFile) {
+      fd.append('face_photo', form.faceFile)
+    }
+
+    if (form.aadharFile) {
+      fd.append('aadhaar_document', form.aadharFile)
+    }
 
     const url = `${API_BASE}/api/v1/visitor/register`
     const res = await fetch(url, {
       method: 'POST',
-      body: fd,
+      body: fd, // ❌ do NOT set Content-Type
     })
 
     if (!res.ok) {
-      const errText = await res.text()
-      console.error('Submission failed:', errText)
-      alert('Submission failed. See console for details.')
+      const err = await res.text()
+      console.error(err)
+      alert('Submission failed. See console.')
       return
     }
 
     const data = await res.json()
-    console.log('Submission success:', data)
-    alert('Form submitted successfully.')
+    console.log('Success:', data)
+    alert('Visitor registered successfully!')
   } catch (err) {
-    console.error('Submit error:', err)
-    alert('Submit error. See console.')
+    console.error(err)
+    alert('Unexpected error')
   }
 }
 </script>
