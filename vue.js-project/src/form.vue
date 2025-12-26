@@ -79,14 +79,17 @@
 
         <div class="field">
           <label>Document Type <span class="req">*</span></label>
-          <select v-model="form.docType" aria-required="true">
-            <option value="">Select</option>
-            <option>Aadhaar Card</option>
-            <option>Voter ID</option>
-            <option>Passport</option>
-          </select>
+          <div class="select-row">
+            <select v-model="form.docType" aria-required="true" :disabled="loadingFormConfig || docOptions.length === 0">
+              <option value="">{{ loadingFormConfig ? 'Loading...' : (docOptions.length ? 'Select' : 'No options available') }}</option>
+              <option v-for="opt in docOptions" :key="opt">{{ opt }}</option>
+            </select>
+            <button type="button" class="btn-secondary btn-small" @click="loadFormConfig" :disabled="loadingFormConfig">Retry</button>
+          </div>
           <small v-if="errors.docType" class="error">{{ errors.docType }}</small>
-        </div>
+          <small v-if="formConfigError && formConfigError.includes('Using default')" class="hint">{{ formConfigError }}</small>
+          <small v-else-if="formConfigError" class="error">{{ formConfigError }}</small>
+        </div>  
 
         <div class="field">
           <label>Aadhaar Number <span class="req">*</span></label>
@@ -102,12 +105,31 @@
           <button class="btn" type="submit">Submit</button>
         </div>
       </form>
+
+      <div v-if="lastSavedVisitor" class="saved-section">
+        <h3 class="subtle">Saved Visitor (latest)</h3>
+        <div class="saved-grid">
+          <div><strong>Name:</strong> {{ lastSavedVisitor.full_name || lastSavedVisitor.fullName }}</div>
+          <div><strong>Contact:</strong> {{ lastSavedVisitor.contact_number || lastSavedVisitor.contactNumber }}</div>
+          <div><strong>Document:</strong> {{ lastSavedVisitor.document_type }}</div>
+          <div><strong>Aadhaar:</strong> {{ lastSavedVisitor.aadhaar_number || lastSavedVisitor.aadhaarNumber }}</div>
+          <div v-if="lastSavedVisitor.face_photo_url || lastSavedVisitor.facePhotoUrl" class="img-col">
+            <strong>Face:</strong>
+            <img :src="lastSavedVisitor.face_photo_url || lastSavedVisitor.facePhotoUrl" alt="Face photo" class="thumb" />
+          </div>
+          <div v-if="lastSavedVisitor.aadhaar_photo_url || lastSavedVisitor.aadhaarPhotoUrl" class="img-col">
+            <strong>Aadhaar:</strong>
+            <img :src="lastSavedVisitor.aadhaar_photo_url || lastSavedVisitor.aadhaarPhotoUrl" alt="Aadhaar photo" class="thumb" />
+          </div>
+        </div>
+      </div>
+
     </div>
   </section>
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 
 const facePhotoInput = ref(null)
 const cameraStream = ref(null)
@@ -128,6 +150,52 @@ const form = reactive({
 })
 
 const errors = reactive({})
+const formConfig = ref(null)
+const docOptions = ref([])
+const loadingFormConfig = ref(false)
+const formConfigError = ref(null)
+const lastSavedVisitor = ref(null)
+
+const apiBases = ['', 'http://127.0.0.1:8000', 'http://localhost:8000']
+
+onMounted(() => {
+  loadFormConfig()
+})
+
+async function loadFormConfig() {
+  loadingFormConfig.value = true
+  formConfigError.value = null
+  docOptions.value = []
+
+  for (const base of apiBases) {
+    try {
+      const url = `${base}/form-config`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+      const data = await res.json()
+      formConfig.value = data
+      const docField = data.fields?.find(f => f.name === 'document_type')
+      if (docField && Array.isArray(docField.options) && docField.options.length) {
+        docOptions.value = docField.options
+      } else {
+        // Ensure we have at least a sensible default
+        console.warn('document_type field missing or has no options in form-config; using default')
+        docOptions.value = ['Aadhaar Card']
+      }
+      console.log('Loaded form config from', url, data)
+      loadingFormConfig.value = false
+      return
+    } catch (err) {
+      console.warn('Could not load form config from', base, err)
+      // try next base
+    }
+  }
+
+  // If we reached here, none of the bases worked
+  formConfigError.value = "Could not load form configuration. Using default Document Type 'Aadhaar Card'. Please ensure the backend is running or configure proxy."
+  docOptions.value = ['Aadhaar Card']
+  loadingFormConfig.value = false
+} 
 
 function triggerFileInput(field) {
   if (field === 'face') {
@@ -225,12 +293,69 @@ function validate() {
   return !Object.values(errors).some(v => v)
 }
 
-function onSubmit() {
+async function onSubmit() {
   if (!validate()) return
-  // For now just log the data; integration with backend would go here.
-  const payload = { ...form }
-  console.log('Submitting visitor data', payload)
-  alert('Form submitted (see console).')
+
+  const fd = new FormData()
+  fd.append('full_name', form.fullName)
+  fd.append('contact_number', form.contactNumber)
+  fd.append('gender', form.gender)
+  fd.append('emergency_contact', form.emergencyNumber || '')
+  fd.append('home_town_address', form.address)
+  fd.append('pin_code', form.pin)
+  fd.append('vehicle_number', form.vehicle || '')
+  if (form.faceFile) fd.append('face_photo', form.faceFile)
+  if (form.aadharFile) fd.append('aadhaar_photo', form.aadharFile)
+  fd.append('document_type', form.docType)
+  fd.append('aadhaar_number', form.aadhaarNumber)
+  fd.append('is_submitted', 'true')
+
+  try {
+    let res = null
+    for (const base of apiBases) {
+      try {
+        const url = `${base}/register`
+        res = await fetch(url, { method: 'POST', body: fd })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText || 'Unknown error' }))
+          alert(`Submission failed: ${err.detail || res.statusText}`)
+          return
+        }
+        break
+      } catch (err) {
+        console.warn('Submission attempt failed for base', base, err)
+        res = null
+        // try next base
+      }
+    }
+
+    if (!res) {
+      alert('Submission failed: could not reach the server. Ensure backend is running or configure proxy.')
+      return
+    }
+
+    const saved = await res.json()
+    alert('Registration successful!')
+    // keep the saved visitor for preview
+    lastSavedVisitor.value = saved
+    // reset form
+    form.fullName = ''
+    form.contactNumber = ''
+    form.gender = ''
+    form.emergencyNumber = ''
+    form.address = ''
+    form.pin = ''
+    form.vehicle = ''
+    form.faceFile = null
+    form.aadharFile = null
+    form.docType = ''
+    form.aadhaarNumber = ''
+    form.confirm = false
+    console.log('Saved visitor:', saved)
+  } catch (err) {
+    console.error('Submission error:', err)
+    alert('An error occurred while submitting. Please try again.')
+  }
 }
 </script>
 
@@ -532,6 +657,45 @@ textarea {
 
   .title {
     font-size: 20px;
+  }
+}
+
+/* Saved visitor preview */
+.saved-section {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px dashed #e0e0e0;
+}
+.saved-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 18px;
+  margin-top: 8px;
+}
+.img-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.select-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.btn-small {
+  padding: 8px 10px;
+  min-width: 72px;
+  font-size: 13px;
+}
+.thumb {
+  max-width: 140px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+}
+
+@media (max-width: 480px) {
+  .saved-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
